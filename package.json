@@ -1,0 +1,39 @@
+{
+  "name": "react-image-tracker",
+  "version": "0.1.0",
+  "description": "React + TypeScript image tracking library that detects registered images via the device camera and highlights them with overlays.",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "dependencies": {
+    "@techstark/opencv-js": "^4.11.0-release.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "tsup": "^8.0.1",
+    "typescript": "^5.4.5"
+  },
+  "keywords": [
+    "react",
+    "image-tracking",
+    "computer-vision",
+    "template-matching",
+    "webcam"
+  ],
+  "author": "",
+  "license": "MIT"
+}
