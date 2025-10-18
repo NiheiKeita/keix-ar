@@ -146,3 +146,64 @@ type ImageDetection = {
 ---
 
 上記仕様と実装アーキテクチャにより、`ImageTracker` を利用すると React アプリケーション内で手軽に画像トラッキングの体験を実現できます。
+
+## 11. 特徴点抽出とマッチングの計算方法
+
+### 11.1 ORB (Oriented FAST and Rotated BRIEF)
+
+- **利用ライブラリ**: OpenCV.js (`cv.ORB`)
+- **処理内容**:
+  1. FAST コーナー検出: 画像上で明度が急変するピクセルを高速に抽出。
+  2. Oriented FAST: 各特徴点に対して周囲の輝度分布から方向（重心角度）を計算し、回転に強くする。
+  3. Rotated BRIEF: 特徴点周辺の小領域からビット列（32バイト）を生成。角度に合わせてサンプリングパターンを回転し、姿勢変化に強いバイナリ記述子を得る。
+- **実装での扱い**:
+  - `prepareTarget` と `computeSceneArtifacts` 内で `const orb = new cv.ORB(); orb.detectAndCompute()` を呼び出し、OpenCV 側に上記全工程を委譲。
+  - 返却される `KeyPointVector` と `Mat`（ディスクリプタ）が以降のマッチングで利用される。
+
+### 11.2 BFMatcher + Hamming 距離
+
+- **利用ライブラリ**: OpenCV.js (`cv.BFMatcher`)
+- **処理内容**:
+  - バイナリ記述子同士の「距離」を Hamming 距離（ビットの相違数）で計算。
+  - KNN マッチング (`knnMatch`, k=2) でターゲットの各特徴点に対して候補を 2 件取得。
+- **実装での扱い**:
+  - `matchTarget` 内で `matcher.knnMatch(target.descriptors, scene.descriptors, matches, 2)` を呼び出し、OpenCV 側に距離計算と最近傍探索を委譲。
+  - その後の **Lowe の比率テスト**（`best.distance < 0.75 * alt.distance`）は当ライブラリ側で実装し、「第一候補が第二候補より十分良い」場合のみ採用。
+
+### 11.3 ホモグラフィ推定と信頼度
+
+- **利用ライブラリ**: OpenCV.js (`cv.findHomography`, `cv.perspectiveTransform`)
+- **処理内容**:
+  - マッチングで得られた 2D 座標ペアから射影変換行列（3x3）を推定。
+  - RANSAC 法により外れ値を排除し、インライヤ（モデルに一致すると判定された点）数をカウント。
+  - 得た行列を用いてターゲット画像の四隅をカメラ座標へ変換。
+- **実装での扱い**:
+  - `matchTarget` 内で `cv.findHomography` を呼び出し、OpenCV 側に推定処理を任せる。
+  - RANSAC が返すマスクの 1 の数を自前で集計し、`confidence` として利用。
+
+### 11.4 全体フロー（Mermaid 図）
+
+```mermaid
+graph TD
+  A[ターゲット画像] -->|ORB detectAndCompute| B[特徴点 + ディスクリプタ]
+  C[ビデオフレーム] -->|ORB detectAndCompute| D[シーン特徴量]
+  B -->|BFMatcher.knnMatch| E[候補マッチ]
+  D -->|BFMatcher.knnMatch| E
+  E -->|比率テスト| F[有効マッチ]
+  F -->|cv.findHomography (RANSAC)| G[ホモグラフィ行列]
+  G -->|cv.perspectiveTransform| H[四隅座標]
+  H -->|描画 & コールバック| I[赤枠オーバーレイ/検出結果]
+```
+
+### 11.5 当ライブラリと OpenCV の責務分担
+
+| 処理 | OpenCV.js | 当ライブラリ |
+| --- | --- | --- |
+| 特徴点検出・記述 | `cv.ORB.detectAndCompute` | 呼び出しと結果管理 |
+| 距離計算・KNN マッチング | `cv.BFMatcher.knnMatch` | 比率テストによるフィルタリング |
+| ホモグラフィ推定 | `cv.findHomography` | マスクから信頼度算出、射影結果の保持 |
+| フレーム管理 | — | WebRTC 取得、キャンバス読み取り |
+| オーバーレイ描画 | — | `<canvas>` で赤枠レンダリング |
+| リソース解放 | OpenCV オブジェクトの `delete()` メソッドを提供 | 適切なタイミングで呼び出し |
+
+このように、重い数値計算は OpenCV.js に委譲しつつ、React 側ではパイプライン制御・安全なリソース管理・結果の可視化を担当しています。
